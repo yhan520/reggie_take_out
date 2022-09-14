@@ -9,6 +9,8 @@ import com.wh95487.reggie.utils.ValidateCodeUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,6 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpSession;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @RestController
@@ -23,6 +27,8 @@ import java.util.Map;
 public class UserController {
     @Autowired
     private UserService userService;
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     @PostMapping("/sendMsg")
     public R<String> sendMsg(@RequestBody User user, HttpSession session){
@@ -34,7 +40,10 @@ public class UserController {
 
             //SMSUtils.sendMessage("瑞吉外卖", "", phone, code);
 
-            session.setAttribute(phone, code);
+            //将生成的验证码保存到Redis缓存，并设置过期时间
+            redisTemplate.opsForValue().set(phone, code, 300, TimeUnit.SECONDS);
+
+            //session.setAttribute(phone, code);
             return R.success(code);
         }
 
@@ -46,7 +55,11 @@ public class UserController {
         String phone = map.get("phone").toString();
         String code = map.get("code").toString();
 
-        String codeInSession = session.getAttribute(phone).toString();
+
+        //String codeInSession = session.getAttribute(phone).toString();
+
+        String codeInSession = redisTemplate.opsForValue().get(phone).toString();
+        redisTemplate.delete(phone);
 
         if(codeInSession != null && codeInSession.equals(code)) {
             LambdaQueryWrapper<User> lqw = new LambdaQueryWrapper<>();

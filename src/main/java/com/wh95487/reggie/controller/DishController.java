@@ -13,10 +13,11 @@ import com.wh95487.reggie.service.DishService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.function.Function;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @RestController
@@ -29,12 +30,16 @@ public class DishController {
     private CategoryService categoryService;
     @Autowired
     private DishFlavorService dishFlavorService;
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     @PostMapping
     public R<String> save(@RequestBody DishDto dishDto){
         log.info(dishDto.toString());
 
         dishService.saveWithFlavor(dishDto);
+        String key = "dish_" + dishDto.getCategoryId() + "_1";
+        redisTemplate.delete(key);
 
         return R.success("成功添加新菜品");
     }
@@ -82,23 +87,35 @@ public class DishController {
     public R<String> update(@RequestBody DishDto dishDto){
         log.info(dishDto.toString());
         dishService.updateWithFlavor(dishDto);
+        String key = "dish_" + dishDto.getCategoryId() + "_1";
+        redisTemplate.delete(key);
         return R.success("修改菜品成功");
     }
 
 
     /**
-     * 用处：1.新增套餐时，根据分类，查询当前分类下的菜品  GET /dish/list?categoryId=1397844263642378242
+     * 用处：1.新增套餐时，根据分类，查询当前分类下的菜品  GET /dish/list?categoryId=1397844263642378242&status=1
      *      2.
      * */
     @GetMapping("/list")
     public R<List<DishDto>> list(Dish dish) {
+        List<DishDto> dishDtoList = null;
+        //动态构造key
+        String key = "dish_" + dish.getCategoryId() + "_" + dish.getStatus();
+        //先在缓存中查找，如果能找到就直接返回
+        dishDtoList = (List<DishDto>) redisTemplate.opsForValue().get(key);
+        if(dishDtoList != null){
+            return R.success(dishDtoList);
+        }
+
+        //无法在缓存中取到，就去数据库中查找
         LambdaQueryWrapper<Dish> lqw = new LambdaQueryWrapper<>();
         lqw.eq(dish.getCategoryId() != null, Dish::getCategoryId, dish.getCategoryId());
         lqw.eq(Dish::getStatus, 1);
         lqw.orderByAsc(Dish::getSort).orderByDesc(Dish::getUpdateTime);
         List<Dish> dishList = dishService.list(lqw); //到这一步就可以实现用处1的功能
 
-        List<DishDto> dishDtos = dishList.stream().map(dish1 -> {
+        dishDtoList = dishList.stream().map(dish1 -> {
             DishDto dishDto = new DishDto();
             BeanUtils.copyProperties(dish1, dishDto);
 
@@ -117,7 +134,9 @@ public class DishController {
             return dishDto;
 
         }).collect(Collectors.toList());
+        //将从数据库中查到的数据放入缓存中，并设置过期时间
+        redisTemplate.opsForValue().set(key, dishDtoList, 60, TimeUnit.MINUTES);
 
-        return R.success(dishDtos);
+        return R.success(dishDtoList);
     }
 }

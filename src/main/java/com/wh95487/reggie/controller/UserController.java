@@ -55,7 +55,6 @@ public class UserController {
         String phone = map.get("phone").toString();
         String code = map.get("code").toString();
 
-
         //String codeInSession = session.getAttribute(phone).toString();
 
         String codeInSession = redisTemplate.opsForValue().get(phone).toString();
@@ -77,6 +76,12 @@ public class UserController {
             return R.success(user);
         }
         return R.error("登录失败");
+    }
+
+    @PostMapping("/loginout")
+    public R<String> loginOut(HttpSession session){
+        session.removeAttribute("user");
+        return R.success("退出登录成功");
     }
 
 
